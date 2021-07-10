@@ -1,0 +1,321 @@
+model file
+/*
+ Supply-Chain-Network .
+ */
+
+namespace org.supplychain.network
+
+concept Trace {
+	o DateTime timestamp
+	o Address location
+	--> Trader company
+}
+
+asset Commodity identified by commodityid {
+	o String commodityid
+	o String name
+	o String description
+	o Double quantity
+	o Double unitPrice optional
+	o Double totalPrice optional
+	o Trace[] trace
+	--> PO purchaseOrder optional
+	--> Trader owner optional
+	--> Trader issuer optional
+}
+
+asset PO identified by orderid {
+	o String orderid
+	o Commodity[] itemList
+	o Double orderTotalPrice optional
+	o OrderStatus orderStatus optional
+	--> Trader orderer
+	--> Trader vendor
+}
+
+enum OrderStatus {
+	o INITIATED
+	o CONFIRMED
+	o DELIVERING
+	o DELIVERED
+}
+
+concept Address {
+	o Double longtitude range=[-180.0, 180.0] optional
+	o Double latitude range=[-90.0, 90.0] optional
+	o String city optional
+	o String country optional
+	o String locality optional
+	o String region optional
+	o String street optional
+	o String postalCode optional
+	o String postOfficeBoxNumber optional
+}
+abstract participant Trader {
+	o String companyName
+	o Address address
+}
+participant Supplier identified by tradeId extends Trader {
+	o String tradeId
+}
+participant Manufacturer identified by tradeId extends Trader {
+	o String tradeId
+}
+participant Distributor identified by tradeId extends Trader {
+	o String tradeId
+}
+participant Retailer identified by tradeId extends Trader {
+	o String tradeId
+}
+participant Customer identified by tradeId extends Trader {
+	o String tradeId
+}
+
+transaction InitiatePO {
+	o String orderId
+	o Commodity[] itemList
+	o Double orderTotalPrice optional
+	--> Trader orderer optional
+	--> Trader vendor
+}
+
+transaction TransferCommodity {
+	--> Commodity commodity
+	--> Trader issuer
+	--> Trader newOwner
+	--> PO purchaseOrder optional
+	o Address shipperLocation
+}
+ 
+
+
+Script file .js
+
+/**
+* Initiate PO from one trader to another
+* @param {org.supplychain.network.InitiatePO} InitiatePO - the InitiatePO is to be processed
+* @transaction
+*/
+function initiatePurchaseOrder(InitiatePO) 
+{
+console.log('Start of InitiatePO Function');
+  
+var factory = getFactory();
+var NS = 'org.supplychain.network';
+var me = getCurrentParticipant();
+  
+var order = factory.newResource(NS, 'PO', InitiatePO.orderId);
+
+order.itemList = InitiatePO.itemList;
+  
+if (InitiatePO.orderTotalPrice) 
+{
+order.orderTotalPrice = InitiatePO.orderTotalPrice;
+}
+order.orderStatus = 'INITIATED';
+order.orderer = me;
+order.vendor = InitiatePO.vendor;
+  
+return getAssetRegistry(order.getFullyQualifiedType()).then(function (assetRegistry){
+return assetRegistry.add(order);
+});
+  
+}
+
+
+
+/**
+* Track the trade of a commodity from one trader to another
+* @param {org.supplychain.network.TransferCommodity} trade - the InitiatePO is to be processed
+* @transaction
+*/
+
+
+function transferCommodity(trade) 
+{
+console.log('Start function transfer Commodity');
+var NS = 'org.supplychain.network';
+var me = getCurrentParticipant();
+var factory = getFactory();
+  
+trade.commodity.issuer = me;
+trade.commodity.owner = trade.newOwner;
+trade.commodity.purchaseOrder = trade.purchaseOrder;
+  
+var newTrace = factory.newConcept(NS, 'Trace');
+newTrace.timestamp = new Date();
+newTrace.location = trade.shipperLocation;
+newTrace.company = me;
+newTrace.commodity.trace.push(newTrace);
+  
+return getAssetRegistry(trade.getFullyQualifiedType()).then(function (assetRegistry) {
+return assetRegistry.update(trade.commodity);
+});
+}
+
+
+ACL file
+
+
+
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+rule ReadCommodity {
+ 	description: "All participants can read their own goods"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.Commodity"
+ 	condition: (r.owner.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule VendorReadPO {
+ 	description: "All vendors can read their own POs"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.PO"
+	condition: (r.vendor.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule OrdererReadPO {
+ 	description: "All orderers can read their own POs"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.PO"
+ 	condition: (r.orderer.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule CreateTransferCommodity {
+ 	description: "All participants can access TransferCommodity transaction"
+	participant: "org.supplychain.network.*"
+ 	operation: CREATE
+ 	resource: "org.supplychain.network.TransferCommodity"
+ 	action: ALLOW
+}
+rule OnlyTransferByTransferCommodity {
+ 	description: "Allow all participants to transfer its own commodity by TransferCommodity"
+ 	participant(p): "org.supplychain.network.*"
+    operation: UPDATE
+   	resource(r): "org.supplychain.network.*"
+ 	transaction(tx): "org.supplychain.network.TransferCommodity"
+ 	condition: (r.owner.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule ReadOwnTransactionRecords {
+ 	description: "Grant all participants to read their own transaction records"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.TransferCommodity"
+ 	condition: (r.issuer.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule ReadOwnTransactionRecordsNewOwner {
+ 	description: "Grant new owner to read their own transaction records"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.TransferCommodity"
+ 	condition: (r.newOwner.getIdentifier() == p.getIdentifier())
+   	action: ALLOW
+}
+rule CreateOwnResource {
+ 	description: "Grant all partcipants to create its own resource"
+ 	participant(p): "org.supplychain.network.*"
+	 operation: CREATE
+ 	resource(r): "org.supplychain.network.Commodity"
+ 	condition: (r.owner.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule CreateOwnPO {
+ description: "Grant all partcipants to create PO"
+ participant(p): "org.supplychain.network.*"
+ operation: CREATE
+ resource(r): "org.supplychain.network.PO"
+ condition: (r.orderer.getIdentifier() == p.getIdentifier())
+ action: ALLOW
+}
+rule CreateInitiatePO {
+ description: "All participants can access InititatePO transaction"
+ participant: "org.supplychain.network.*"
+ operation: CREATE
+ resource: "org.supplychain.network.InitiatePO"
+ action: ALLOW
+}
+rule VendorCanReadTransaction {
+ 	description: "Grant all vendors to read their own transaction records"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.InitiatePO"
+ 	condition: (r.vendor.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule OrdererCanReadTransaction {
+	description: "Grant all vendors to read their own transaction records"
+ 	participant(p): "org.supplychain.network.*"
+ 	operation: READ
+ 	resource(r): "org.supplychain.network.InitiatePO"
+ 	condition: (r.orderer.getIdentifier() == p.getIdentifier())
+ 	action: ALLOW
+}
+rule SystemACL {
+	description: "System ACL to permit all access"
+ 	participant: "org.hyperledger.composer.system.Participant"
+ 	operation: ALL
+ 	resource: "org.hyperledger.composer.system.**"
+ 	action: ALLOW
+}
+
+
+
+
+
+Query File
+
+
+
+
+
+
+
+/**
+ * New query file
+ */
+
+
+query Q1 {
+	description: "Select all commodities"
+	statement: SELECT org.supplychain.network.Commodity
+}
+query Q2 {
+	description: "Select all POs"
+	statement: SELECT org.supplychain.network.PO
+}
+query Q3 {
+	description: "Select all Manufacturers"
+	statement: SELECT org.supplychain.network.Manufacturer
+}
+query Q4 {
+	description: "Select all Suppliers"
+	statement: SELECT org.supplychain.network.Supplier
+}
+query Q5 {
+	description: "Select all Distributors"
+	statement: SELECT org.supplychain.network.Distributor
+}
+query Q6 {
+	description: "Select all Retailers"
+	statement: SELECT org.supplychain.network.Retailer
+}
+query Q7 {
+	description: "Select all Customers"
+	statement: SELECT org.supplychain.network.Customer
+}
