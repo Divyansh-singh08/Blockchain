@@ -1,0 +1,32 @@
+/**
+ * New query file
+ */
+
+query Q1 {
+	description: "Select all commodities"
+	statement: SELECT org.amazonsupplychain.network.Commodity
+}
+query Q2 {
+	description: "Select all POs"
+	statement: SELECT org.amazonsupplychain.network.PO
+}
+query Q3 {
+	description: "Select all Manufacturers"
+	statement: SELECT org.amazonsupplychain.network.Manufacturer
+}
+query Q4 {
+	description: "Select all Suppliers"
+	statement: SELECT org.amazonsupplychain.network.Supplier
+}
+query Q5 {
+	description: "Select all Distributors"
+	statement: SELECT org.amazonsupplychain.network.Distributor
+}
+query Q6 {
+	description: "Select all Retailers"
+	statement: SELECT org.amazonsupplychain.network.Retailer
+}
+query Q7 {
+	description: "Select all Customers"
+	statement: SELECT org.amazonsupplychain.network.Customer
+}
